@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoSafe - Global Safety Navigation Matrix</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+
+    <style>
+        #map { height: 600px; width: 100%; border-radius: 12px; z-index: 1; border: 1px solid #e5e7eb; }
+        .symbol-icon {
+            font-size: 28px;
+            background: none;
+            border: none;
+            text-align: center;
+            line-height: 1;
+        }
+        .custom-search-field .leaflet-control-geocoder {
+            width: 100% !important;
+            box-shadow: none !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 0.375rem !important;
+            background-color: #f9fafb !important;
+            display: block !important;
+            float: none !important;
+        }
+        .custom-search-field .leaflet-control-geocoder-form input {
+            width: 100% !important;
+            font-size: 13px !important;
+            padding: 8px 12px !important;
+            background: transparent !important;
+            color: #111827 !important;
+            border: none !important;
+            outline: none !important;
+        }
+        .custom-search-field .leaflet-control-geocoder-icon { display: none !important; }
+        
+        .loading { opacity: 0.6; pointer-events: none; }
+        .error-message {
+            color: #dc2626;
+            font-size: 12px;
+            margin-top: 8px;
+            padding: 8px;
+            background: #fee2e2;
+            border-radius: 4px;
+            border-left: 3px solid #dc2626;
+        }
+        .success-message {
+            color: #059669;
+            font-size: 12px;
+            margin-top: 8px;
+            padding: 8px;
+            background: #d1fae5;
+            border-radius: 4px;
+            border-left: 3px solid #059669;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900 font-sans antialiased">
+
+    <div class="max-w-7xl mx-auto p-6">
+        <header class="flex justify-between items-center border-b border-gray-200 pb-4 mb-6">
+            <div>
+                <h1 class="text-2xl font-black tracking-tight text-gray-900">GeoSafe Dashboard</h1>
+                <p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Hyderabad Safety Navigation Framework</p>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="fetchStats()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2 px-4 rounded transition-all shadow-sm cursor-pointer">
+                    📊 View Stats
+                </button>
+                <button onclick="seedCompendiumDatabase()" class="bg-red-600 hover:bg-red-700 text-white font-bold text-xs py-2 px-4 rounded transition-all shadow-sm cursor-pointer" id="seedBtn">
+                    🔄 Sync Master Case Files
+                </button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-5">
+                <h2 class="text-sm font-bold text-gray-400 uppercase tracking-wider">Safe Route Analyser</h2>
+                
+                <div class="custom-search-field">
+                    <label class="block text-xs font-bold text-gray-700 mb-1">Origin Address Input</label>
+                    <div id="sourceSearchBox"></div>
+                    <p id="sourceStatus" class="text-[11px] text-gray-400 mt-1 italic">No address locked</p>
+                </div>
+
+                <div class="custom-search-field">
+                    <label class="block text-xs font-bold text-gray-700 mb-1">Destination Address Input</label>
+                    <div id="destSearchBox"></div>
+                    <p id="destStatus" class="text-[11px] text-gray-400 mt-1 italic">No address locked</p>
+                </div>
+
+                <button onclick="calculateGlobalSafeRoute()" class="w-full bg-gray-900 hover:bg-gray-800 text-white font-semibold py-2.5 rounded-md transition-all cursor-pointer text-sm shadow-sm mt-1" id="analyzeBtn">
+                    🗺️ Analyze Route Safety
+                </button>
+                <div id="routeMessage"></div>
+
+                <div class="mt-2 pt-4 border-t border-gray-100">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Threat Legend Matrix</h3>
+                    <div class="space-y-2.5 text-xs font-semibold text-gray-600">
+                        <div class="flex items-center gap-2"><span>💀</span> <span class="text-red-600">Violent Crime Logs</span></div>
+                        <div class="flex items-center gap-2"><span>🌑</span> <span class="text-amber-600">Dark Corridors</span></div>
+                        <div class="flex items-center gap-2"><span>⚠️</span> <span class="text-amber-500">Facility / Resource Void</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-3 relative bg-white p-2 rounded-xl border border-gray-200 shadow-sm">
+                <div id="map"></div>
+                <div class="absolute bottom-4 left-4 z-[1000] bg-white/95 backdrop-blur shadow border border-gray-200 px-4 py-2 rounded-md text-xs flex gap-4 font-bold text-gray-700">
+                    <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span> Secure Path</div>
+                    <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 bg-amber-400 rounded-full"></span> Caution Warning</div>
+                    <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 bg-rose-500 rounded-full"></span> High Danger Area</div>
+                </div>
+                <div id="statsPanel" class="absolute top-4 right-4 z-[1000] bg-white/95 backdrop-blur shadow border border-gray-200 px-4 py-3 rounded-md text-xs hidden">
+                    <div id="statContent"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    
+    <script>
+        // ============================================
+        // MAP INITIALIZATION
+        // ============================================
+        const map = L.map('map').setView([17.3850, 78.4860], 11);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        let activeLayers = L.featureGroup().addTo(map);
+        let sourceLocationCoords = null;
+        let destLocationCoords = null;
+
+        // ============================================
+        // API FUNCTIONS
+        // ============================================
+
+        async function seedCompendiumDatabase() {
+            const btn = document.getElementById('seedBtn');
+            const adminKey = prompt('Enter admin key to sync database:');
+            
+            if (!adminKey) {
+                showMessage('Sync cancelled', 'error');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.classList.add('loading');
+
+            try {
+                const response = await fetch('/api/seed-compendium', {
+                    headers: { 'x-admin-key': adminKey }
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    showMessage(`✅ ${data.message}`, 'success');
+                } else {
+                    showMessage(`❌ ${data.error}: ${data.message || ''}`, 'error');
+                }
+            } catch (err) {
+                console.error('Seed error:', err);
+                showMessage('Failed to sync database', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('loading');
+            }
+        }
+
+        async function calculateGlobalSafeRoute() {
+            if (!sourceLocationCoords || !destLocationCoords) {
+                showRouteMessage('Please select both origin and destination addresses!', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('analyzeBtn');
+            btn.disabled = true;
+            btn.classList.add('loading');
+            showRouteMessage('🔄 Calculating route safety...', 'info');
+
+            try {
+                activeLayers.clearLayers();
+
+                // Get route from OSRM
+                const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${sourceLocationCoords[1]},${sourceLocationCoords[0]};${destLocationCoords[1]},${destLocationCoords[0]}?overview=full&geometries=geojson`;
+                const routeResponse = await fetch(osrmUrl);
+
+                if (!routeResponse.ok) {
+                    throw new Error('Failed to calculate route');
+                }
+
+                const routeData = await routeResponse.json();
+
+                if (!routeData.routes || routeData.routes.length === 0) {
+                    throw new Error('No route found');
+                }
+
+                const fullRouteCoordinates = routeData.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+
+                // Get safety analysis
+                const safetyResponse = await fetch('/api/route-safety', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ coordinates: fullRouteCoordinates })
+                });
+
+                if (!safetyResponse.ok) {
+                    throw new Error('Failed to analyze route safety');
+                }
+
+                const safetyData = await safetyResponse.json();
+
+                // Draw route segments
+                for (let i = 0; i < safetyData.segments.length - 1; i++) {
+                    const currentPoint = safetyData.segments[i];
+                    const nextPoint = safetyData.segments[i + 1];
+
+                    let strokeColor = '#10b981'; // Green
+                    if (currentPoint.color === 'red') strokeColor = '#f43f5e'; // Red
+                    if (currentPoint.color === 'yellow') strokeColor = '#fbbf24'; // Yellow
+
+                    L.polyline(
+                        [[currentPoint.lat, currentPoint.lng], [nextPoint.lat, nextPoint.lng]],
+                        { color: strokeColor, weight: 6, opacity: 0.9 }
+                    ).addTo(activeLayers);
+                }
+
+                // Draw hazard markers
+                safetyData.hazards.forEach(hazard => {
+                    let markerSymbol = '⚠️';
+                    if (hazard.type === 'murder') markerSymbol = '💀';
+                    else if (hazard.type === 'dark') markerSymbol = '🌑';
+
+                    const customHtmlIcon = L.divIcon({
+                        html: markerSymbol,
+                        className: 'symbol-icon',
+                        iconSize: [28, 28]
+                    });
+
+                    L.marker([hazard.location.coordinates[1], hazard.location.coordinates[0]], { icon: customHtmlIcon })
+                        .addTo(activeLayers)
+                        .bindPopup(`
+                            <div class="text-gray-900 font-sans p-2 max-w-sm">
+                                <b class="text-sm border-b pb-1 border-gray-200 block text-red-600">${hazard.caseTitle}</b>
+                                <p class="text-[10px] font-bold text-gray-500 my-1 uppercase">Category: ${hazard.category}</p>
+                                <p class="text-xs text-gray-700 my-1 font-medium"><b>Details:</b> ${hazard.description.substring(0, 100)}...</p>
+                                <p class="text-[11px] text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded mt-1"><b>Action:</b> ${hazard.policeIntervention.substring(0, 80)}...</p>
+                            </div>
+                        `);
+                });
+
+                if (activeLayers.getLayers().length > 0) {
+                    map.fitBounds(activeLayers.getBounds(), { padding: [50, 50] });
+                }
+
+                const hazardCount = safetyData.hazards.length;
+                const dangerZones = safetyData.hazards.filter(h => h.type === 'murder').length;
+                showRouteMessage(
+                    `✅ Route analyzed! Found ${hazardCount} hazards (${dangerZones} danger zones)`,
+                    'success'
+                );
+            } catch (error) {
+                console.error('Route analysis error:', error);
+                showRouteMessage('Error analyzing route. Please try again.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('loading');
+            }
+        }
+
+        async function fetchStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+
+                const panel = document.getElementById('statsPanel');
+                const content = document.getElementById('statContent');
+
+                let html = '<b class="block mb-2">📊 Safety Statistics</b>';
+                html += `<p class="mb-1">Total Incidents: <b>${data.total}</b></p>`;
+                html += '<div class="text-[10px]">';
+                
+                data.byType.forEach(item => {
+                    const typeEmoji = item._id === 'murder' ? '💀' : item._id === 'dark' ? '🌑' : '⚠️';
+                    html += `<p>${typeEmoji} ${item._id}: ${item.count}</p>`;
+                });
+                
+                html += '</div>';
+                content.innerHTML = html;
+                panel.classList.remove('hidden');
+            } catch (err) {
+                console.error('Stats error:', err);
+            }
+        }
+
+        function showRouteMessage(msg, type) {
+            const container = document.getElementById('routeMessage');
+            const className = type === 'error' ? 'error-message' : type === 'success' ? 'success-message' : 'text-blue-600 text-[11px] mt-2';
+            container.innerHTML = `<div class="${className}">${msg}</div>`;
+        }
+
+        function showMessage(msg, type) {
+            alert(msg);
+        }
+
+        // ============================================
+        // GEOCODER SETUP
+        // ============================================
+        const sourceGeocoder = L.Control.geocoder({
+            collapsed: false,
+            placeholder: 'Search origin location...',
+            defaultMarkGeocode: false
+        })
+            .on('markgeocode', function(e) {
+                sourceLocationCoords = [e.geocode.center.lat, e.geocode.center.lng];
+                document.getElementById('sourceStatus').innerHTML = `📍 Linked: <span class="text-emerald-600 font-bold">${e.geocode.name.substring(0, 25)}...</span>`;
+            });
+        document.getElementById('sourceSearchBox').appendChild(sourceGeocoder.onAdd(map));
+
+        const destGeocoder = L.Control.geocoder({
+            collapsed: false,
+            placeholder: 'Search destination...',
+            defaultMarkGeocode: false
+        })
+            .on('markgeocode', function(e) {
+                destLocationCoords = [e.geocode.center.lat, e.geocode.center.lng];
+                document.getElementById('destStatus').innerHTML = `🏁 Linked: <span class="text-emerald-600 font-bold">${e.geocode.name.substring(0, 25)}...</span>`;
+            });
+        document.getElementById('destSearchBox').appendChild(destGeocoder.onAdd(map));
+    </script>
+</body>
+</html>
