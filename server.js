@@ -14,9 +14,8 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 // ============================================
 // SECURITY MIDDLEWARE
 // ============================================
-app.use(helmet()); // Set security HTTP headers
+app.use(helmet());
 
-// CORS with restricted origins
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')
   : ['http://localhost:3000', 'http://localhost:5173'];
@@ -28,9 +27,8 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Rate limiting
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 900000, // 15 minutes
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 900000,
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
@@ -38,15 +36,9 @@ const limiter = rateLimit({
 });
 
 app.use('/api/', limiter);
-
-// Request logging
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
-
-// Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
-
-// Serving static files
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ============================================
@@ -77,7 +69,7 @@ mongoose.connect(MONGO_URI, {
 const CaseReportSchema = new mongoose.Schema({
   location: {
     type: { type: String, enum: ['Point'], default: 'Point' },
-    coordinates: { type: [Number], required: true } // [lng, lat]
+    coordinates: { type: [Number], required: true }
   },
   caseTitle: { type: String, required: true, trim: true },
   category: { type: String, required: true, trim: true },
@@ -98,12 +90,6 @@ const CaseReport = mongoose.model('CaseReport', CaseReportSchema);
 // UTILITY FUNCTIONS
 // ============================================
 
-/**
- * Validate latitude and longitude values
- * @param {number} lat - Latitude (-90 to 90)
- * @param {number} lng - Longitude (-180 to 180)
- * @returns {boolean}
- */
 function isValidLatLng(lat, lng) {
   return (
     typeof lat === 'number' &&
@@ -115,11 +101,6 @@ function isValidLatLng(lat, lng) {
   );
 }
 
-/**
- * Validate coordinates array
- * @param {array} coordinates - Array of [lat, lng] pairs
- * @returns {object} { valid: boolean, error?: string }
- */
 function validateCoordinatesArray(coordinates) {
   if (!Array.isArray(coordinates)) {
     return { valid: false, error: 'Coordinates must be an array' };
@@ -139,9 +120,6 @@ function validateCoordinatesArray(coordinates) {
   return { valid: true };
 }
 
-/**
- * Authentication middleware for admin endpoints
- */
 function authenticateAdmin(req, res, next) {
   const adminKey = req.headers['x-admin-key'];
   const expectedKey = process.env.ADMIN_SECRET_KEY;
@@ -152,32 +130,31 @@ function authenticateAdmin(req, res, next) {
   next();
 }
 
+function getDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 // ============================================
 // API ROUTES
 // ============================================
 
-/**
- * GET /api/health
- * Health check endpoint
- */
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-/**
- * GET /api/seed-compendium
- * Seed database with case files (ADMIN ONLY)
- */
 app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
   try {
-    const count = await CaseReport.countDocuments();
-    if (count > 0) {
-      return res.status(400).json({
-        error: 'Database already populated',
-        message: `${count} cases already exist. Delete them first if you want to reseed.`
-      });
-    }
-
+    await CaseReport.deleteMany({});
     await CaseReport.create([
       {
         caseTitle: '1. Shamshabad Toll Plaza (The Disha Case)',
@@ -185,7 +162,7 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'murder',
         location: { type: 'Point', coordinates: [78.4215, 17.2512] },
         description:
-          'A 26-year-old veterinary doctor was targeted near the Tondupally toll plaza. Perpetrators intentionally deflated her scooter tyre, ambushed her under the pretense of offering help, dragged her into nearby bushes, gang-raped her, and asphyxiated her.',
+          'A 26-year-old veterinary doctor was targeted near the Tondupally toll plaza. Perpetrators intentionally deflated her scooter tyre, ambushed her, gang-raped her, and asphyxiated her.',
         policeIntervention:
           'Triggered massive nationwide structural reforms, forced-patrolling updates, and rapid incident response audits.'
       },
@@ -195,7 +172,7 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'murder',
         location: { type: 'Point', coordinates: [78.4112, 17.4305] },
         description:
-          'A 17-year-old minor girl was abducted and gang-raped in a moving luxury car (an Innova) after leaving a get-together at a pub in the upscale Jubilee Hills neighborhood. The vehicle windows were deliberately covered to obscure public view.',
+          'A 17-year-old minor girl was abducted and gang-raped in a moving luxury car. Vehicle windows were deliberately covered to obscure public view.',
         policeIntervention:
           'Juvenile Justice Board ruled that four of the minors would be tried as adults due to the heinous nature of the crime.'
       },
@@ -205,9 +182,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'dark',
         location: { type: 'Point', coordinates: [78.3485, 17.4932] },
         description:
-          'A young female software employee working in the IT corridor of Gachibowli was targeted while taking an unauthorized shared auto-rickshaw late at night. The driver and his accomplice diverted the route to an isolated area near Miyapur, where she was sexually assaulted and robbed.',
+          'A young female software employee was targeted while taking a shared auto-rickshaw late at night. Driver diverted to isolated area where she was assaulted and robbed.',
         policeIntervention:
-          'Cyberabad She Teams launched mandatory transit QR-code tracking and strict nocturnal police patrolling across the Financial District.'
+          'Cyberabad She Teams launched mandatory transit QR-code tracking and strict nocturnal police patrolling.'
       },
       {
         caseTitle: '4. Narsingi Outer Ring Road Stretch',
@@ -215,9 +192,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'no_facilities',
         location: { type: 'Point', coordinates: [78.3408, 17.3914] },
         description:
-          'A 23-year-old female management student was offered a lift late at night by an acquaintance and his friend near Gachibowli. Instead of dropping her at her destination, the men drove onto the isolated stretches of the Outer Ring Road near Narsingi. They locked the vehicle doors, subjected her to physical assault, and sexually assaulted her inside the moving car.',
+          'A 23-year-old management student was offered a lift by acquaintances who drove to isolated ORR stretch, locked doors, and sexually assaulted her.',
         policeIntervention:
-          'The Cyberabad Police tracked the vehicle using toll gate FASTag logs and CCTV footage, resulting in immediate arrest. Triggered a major safety audit of the ORR nighttime surveillance.'
+          'Cyberabad Police tracked vehicle using toll gate FASTag logs and CCTV footage, resulting in immediate arrest.'
       },
       {
         caseTitle: '5. Balanagar Minor Rape Case',
@@ -225,9 +202,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'no_facilities',
         location: { type: 'Point', coordinates: [78.4482, 17.4691] },
         description:
-          'An 11-year-old girl from a marginalized migrant laborer family went missing from outside her home in the industrial area of Balanagar. She was lured away with the promise of sweets by a 35-year-old local factory worker. The perpetrator took her to an abandoned warehouse nearby, where he brutally assaulted her.',
+          'An 11-year-old girl was lured away with promise of sweets by local factory worker. Perpetrator took her to abandoned warehouse and assaulted her.',
         policeIntervention:
-          'The case was put on a fast-track timeline, resulting in a life imprisonment sentence for the accused within a year under the POCSO Act.'
+          'Case was put on fast-track, resulting in life imprisonment sentence within a year under POCSO Act.'
       },
       {
         caseTitle: '6. Begumpet Multi-Storey Building Assault',
@@ -235,9 +212,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'dark',
         location: { type: 'Point', coordinates: [78.4734, 17.4412] },
         description:
-          'A 25-year-old corporate employee was trapped inside a commercial multi-storey building in Begumpet after office hours. A private security guard on duty intercepted her in an isolated corridor near the stairwell, cut off her path to the elevator, and sexually assaulted her.',
+          'A 25-year-old corporate employee was trapped in isolated corridor by security guard who sexually assaulted her.',
         policeIntervention:
-          'The security agency was heavily penalized for failing to conduct background checks. Led to a mandate requiring all commercial complexes in Hyderabad to verify the credentials of their private security staff.'
+          'Security agency penalized. All commercial complexes now required to verify security staff credentials.'
       },
       {
         caseTitle: '7. Malkajgiri Realtor Shooting',
@@ -245,9 +222,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'murder',
         location: { type: 'Point', coordinates: [78.5312, 17.4521] },
         description:
-          'A 48-year-old real estate businessman shot and killed his second wife at their residence in Maruti Nagar, Malkajgiri. The perpetrator suspected her fidelity and had spent 40 days in jail earlier that year after the task force caught him illegally buying a country-made pistol from Bihar to kill her.',
+          'A 48-year-old real estate businessman shot his second wife. Suspected her fidelity and had purchased illegal pistol from Bihar.',
         policeIntervention:
-          'The case highlights the fatal escalation of domestic tracking, marital disputes, and illegal arms transit.'
+          'Highlights fatal escalation of domestic tracking and illegal arms transit across states.'
       },
       {
         caseTitle: '8. Saroornagar Daylight Stalking Case',
@@ -255,9 +232,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'murder',
         location: { type: 'Point', coordinates: [78.5368, 17.3622] },
         description:
-          'A 21-year-old college student was brutally attacked and murdered in broad daylight in the Saroornagar area by a rejected stalker. The accused had been obsessively pursuing her for months; when she firmly rejected his advances, he confronted her in public and slit her throat.',
+          'A 21-year-old college student murdered by rejected stalker in broad daylight. Assailant pursued her for months before confronting her publicly.',
         policeIntervention:
-          'This case became a definitive study on psychological obsession. It led to localized outrage and demands for immediate fast-track court rulings for public assaults.'
+          'Led to demands for immediate fast-track court rulings for public assaults and stalking cases.'
       },
       {
         caseTitle: '9. Moinabad Serial Lure & Murder Case',
@@ -265,9 +242,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'no_facilities',
         location: { type: 'Point', coordinates: [78.2842, 17.3235] },
         description:
-          'A highly disturbing financial conspiracy unraveled when a couple, led by a woman named Karima Begum, systematically targeted elderly women lenders. They lured two women from Tandur to an isolated farmhouse in Moinabad under the pretext of clearing debts, where they murdered them.',
+          'A couple lured elderly women lenders to isolated farmhouse under pretext of clearing debts and murdered them.',
         policeIntervention:
-          'Investigations revealed that the couple had plotted to execute eight women lenders similarly. The surviving six women approached the police after realizing the pattern.'
+          'Couple had plotted to execute eight women lenders. Six surviving women reported the pattern to police.'
       },
       {
         caseTitle: '10. Nampally Digital Blackmail Case',
@@ -275,9 +252,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'dark',
         location: { type: 'Point', coordinates: [78.4674, 17.3911] },
         description:
-          'A 30-year-old man, Chinthalapally Naveen Reddy, systematically targeted and stalked a Hyderabad-based woman. Despite being explicitly warned by law enforcement earlier, he continued to inundate her with continuous phone calls, intimidating messages, and threats of morphing her photos to blackmail her.',
+          'A 30-year-old man systematically stalked woman despite law enforcement warnings. Sent threatening messages and blackmail threats.',
         policeIntervention:
-          'He was caught, prosecuted under Section 292 of the Bharatiya Nyaya Sanhita (BNS) and Section 70(c) of the Hyderabad City Police Act, and handed a jail sentence by the Nampally Special Judicial Magistrate Court.'
+          'Prosecuted and imprisoned by Nampally Special Judicial Magistrate Court under BNS and Police Act.'
       },
       {
         caseTitle: '11. Langer Houz Multi-Platform Cyber Case',
@@ -285,9 +262,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'dark',
         location: { type: 'Point', coordinates: [78.4312, 17.3945] },
         description:
-          'A 28-year-old serial cyber-stalker, Gadapa Naresh, targeted multiple unknown women across Hyderabad by sourcing their contact details through public directories and social platforms. He weaponized apps like Instagram, WhatsApp, and Telegram to send unsolicited, explicit messages.',
+          'Serial cyber-stalker targeted multiple women through Instagram, WhatsApp, and Telegram with explicit messages.',
         policeIntervention:
-          'After several women filed digital petitions, the She Teams tracked his digital footprints. He was convicted at the Nampally court.'
+          'She Teams tracked digital footprints and perpetrator was convicted at Nampally court.'
       },
       {
         caseTitle: '12. Undercover Bus-Stop Security Expose',
@@ -295,9 +272,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'dark',
         location: { type: 'Point', coordinates: [78.4862, 17.3848] },
         description:
-          'In a high-profile operational experiment to gauge real-time women safety, Hyderabad police leadership went undercover. A senior female police official posed as a lone, stranded commuter at a public transit bus stop late at night without her security detail.',
+          'Senior female police official posed as stranded commuter at bus stop without security. Nearly 40 men approached with predatory intent.',
         policeIntervention:
-          'Within a short three-hour window, nearly 40 men approached her with predatory intent. Hidden backup teams immediately swarmed the location and detained multiple offenders.'
+          'Hidden backup teams detained multiple offenders within three-hour window. Major security wake-up call.'
       },
       {
         caseTitle: '13. Malakpet Inter-State Infant Trafficking',
@@ -305,9 +282,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'no_facilities',
         location: { type: 'Point', coordinates: [78.4981, 17.3754] },
         description:
-          'The Rachakonda Police cracked open a massive human trafficking web operating across multiple states. An ASHA worker from Malakpet collaborated with lab technicians and a marriage bureau owner to target poor mothers or illegally procure infants from states like Maharashtra and Uttar Pradesh.',
+          'Massive trafficking web across states. ASHA worker collaborated with lab technicians to procure infants from multiple states.',
         policeIntervention:
-          'Police successfully rescued 10 infants and arrested 27 people, including 18 adoptive parents who bypassed legal channels.'
+          'Rescued 10 infants and arrested 27 people, including 18 adoptive parents who bypassed legal channels.'
       },
       {
         caseTitle: '14. Lingampally Child Kidnapping Gang',
@@ -315,9 +292,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'no_facilities',
         location: { type: 'Point', coordinates: [78.3182, 17.4812] },
         description:
-          'Led by an Ayurvedic practitioner named Chilukuri Raju, a gang operated for four years across Hyderabad, Cyberabad, and Sangareddy. They targeted marginalized families living in huts or railway stations, abducting children under the age of five.',
+          'Gang operated for four years abducting children under five from marginalized families in huts and railway stations.',
         policeIntervention:
-          'The case unraveled when a 4-year-old boy went missing near a temple in Lingampally. Police arrested five individuals and rescued six children.'
+          'Unraveled when 4-year-old went missing. Five arrested and six children rescued.'
       },
       {
         caseTitle: '15. Kondurg Agri-Farm Forced Labor Camp',
@@ -325,9 +302,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'no_facilities',
         location: { type: 'Point', coordinates: [78.2124, 17.0621] },
         description:
-          'The Anti-Human Trafficking Unit (AHTU), alongside the Rescue Foundation, raided an agricultural processing private limited company in Kondurg, on the outskirts of Hyderabad. They rescued seven minor trafficked children (six girls and one boy) who had been brought illegally from Jharkhand.',
+          'AHTU raided agricultural processing company on Hyderabad outskirts. Rescued seven minor trafficked children from Jharkhand.',
         policeIntervention:
-          'The children were handed over to the National Human Rights Commission for immediate rehabilitation.'
+          'Children handed over to National Human Rights Commission for immediate rehabilitation.'
       },
       {
         caseTitle: '16. Secunderabad Railway Transit Interchange',
@@ -335,9 +312,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'dark',
         location: { type: 'Point', coordinates: [78.5024, 17.4344] },
         description:
-          'A deeply entrenched inter-state crime ring was busted when police intercepted a group attempting to transport children through Secunderabad Railway Station. The network systematically kidnapped young children from marginalized communities in Gujarat and trafficked them into Hyderabad.',
+          'Inter-state crime ring kidnapping children from Gujarat and trafficking into Hyderabad through railway station.',
         policeIntervention:
-          'A coordinated raid led to the arrest of 11 individuals operating across state lines. Investigators found that the children were being sold to local syndicates.'
+          'Coordinated raid arrested 11 individuals. Children were being sold to local syndicates.'
       },
       {
         caseTitle: '17. Patancheruvu Infant Supply Case',
@@ -345,9 +322,10 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'no_facilities',
         location: { type: 'Point', coordinates: [78.2612, 17.5241] },
         description:
-          'During the broader crackdown on the Ayurvedic practitioner child-kidnapping ring in Hyderabad, a shocking sub-plot of exploitation emerged in Patancheruvu. A local father fell into extreme financial distress and was manipulated into selling his own newborn infants.',
+          'Father in financial distress manipulated into selling newborn infants. Sub-plot of broader trafficking ring.'
+        ,
         policeIntervention:
-          'The police successfully rescued the newborns along with four other abducted children. The biological father, along with the facilitators, was booked under severe anti-trafficking laws.'
+          'Successfully rescued newborns and four other abducted children. Biological father and facilitators booked.'
       },
       {
         caseTitle: '18. Gachibowli & Madhapur Safe-House Networks',
@@ -355,9 +333,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'murder',
         location: { type: 'Point', coordinates: [78.3452, 17.4415] },
         description:
-          'In an expansive, coordinated night-raid across major financial hubs including Gachibowli, Madhapur, Narsingi, and Kukatpally, the Anti-Human Trafficking Unit busted a decentralized ring where women were being kidnapped or coerced under false employment promises.',
+          'Coordinated raids across financial hubs busted ring where women were kidnapped under false employment promises.',
         policeIntervention:
-          'The operators used online portals to traffic women from other states and lock them in residential apartments. The police rescued 16 women from prostitution.'
+          'Operators used online portals. Rescued 16 women from prostitution.'
       },
       {
         caseTitle: '19. Madhapur & Jubilee Hills Salon Coercion Ring',
@@ -365,9 +343,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'no_facilities',
         location: { type: 'Point', coordinates: [78.3814, 17.4484] },
         description:
-          'Pretending to run legitimate wellness centers, a network of operators across Madhapur and Jubilee Hills put out fake advertisements for hospitality and front-desk jobs. Young women migrating from Northeast India were intercepted at transit hubs and had their identity documents confiscated.',
+          'Fake wellness center advertisements for hospitality jobs. Northeast Indian women had documents confiscated.',
         policeIntervention:
-          'Following a tip-off from an escaped victim, the Cyberabad Police raided three upscale properties, rescued over nine women, and booked the property owners under the ITPA.'
+          'Escaped victim tip-off led to raids. Rescued nine women, property owners booked under ITPA.'
       },
       {
         caseTitle: '20. Secunderabad Lodge Campus Abduction Case',
@@ -375,9 +353,9 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
         type: 'murder',
         location: { type: 'Point', coordinates: [78.4912, 17.4395] },
         description:
-          'A 19-year-old girl was abducted from near her college campus in Kukatpally by a group acting on behalf of a rejected suitor. She was forced into a vehicle, drugged, and taken to a secluded lodge near Secunderabad, where the perpetrators attempted to stage a forced marriage.',
+          '19-year-old abducted near college by group acting for rejected suitor. Drugged and taken to secluded lodge.',
         policeIntervention:
-          'The victim family acted quickly, allowing the police to use cell tower triangulation to locate the lodge within hours. The police forced entry into the room, rescued the girl safely, and arrested four men.'
+          'Family acted quickly. Cell tower triangulation located lodge within hours. Four men arrested, girl rescued.'
       }
     ]);
 
@@ -392,15 +370,10 @@ app.get('/api/seed-compendium', authenticateAdmin, async (req, res) => {
   }
 });
 
-/**
- * POST /api/route-safety
- * Calculate route safety based on proximity to crime incidents
- */
 app.post('/api/route-safety', async (req, res) => {
   try {
     const { coordinates } = req.body;
 
-    // Validate coordinates
     const validation = validateCoordinatesArray(coordinates);
     if (!validation.valid) {
       return res.status(400).json({ error: validation.error });
@@ -410,25 +383,26 @@ app.post('/api/route-safety', async (req, res) => {
     let segments = [];
     let detectedHazards = new Map();
 
-    // Find all hazards within buffer distance of the entire route (optimized)
+    // Find all hazards within buffer
     const allHazards = await CaseReport.find({
       location: {
         $geoWithin: {
           $centerSphere: [
             [coordinates[0][1], coordinates[0][0]],
-            (buffer / 1000) / 6371 // Convert meters to radians
+            (buffer / 1000) / 6371
           ]
         }
       }
     });
 
-    // Process each coordinate point
+    // Process each coordinate
     for (let i = 0; i < coordinates.length; i++) {
       const [lat, lng] = coordinates[i];
       let segmentColor = 'green';
+      let incidentCount = 0;
 
-      // Check if any hazard is within buffer of this point
-      const nearbyHazard = allHazards.find(hazard => {
+      // Find hazards near this point
+      const nearbyHazards = allHazards.filter(hazard => {
         const distance = getDistance(
           lat,
           lng,
@@ -438,19 +412,25 @@ app.post('/api/route-safety', async (req, res) => {
         return distance <= buffer;
       });
 
-      if (nearbyHazard) {
-        if (nearbyHazard.type === 'murder') {
-          segmentColor = 'red';
-        } else if (nearbyHazard.type === 'dark' || nearbyHazard.type === 'no_facilities') {
-          segmentColor = 'yellow';
-        }
+      incidentCount = nearbyHazards.length;
 
-        if (!detectedHazards.has(nearbyHazard._id.toString())) {
-          detectedHazards.set(nearbyHazard._id.toString(), nearbyHazard);
-        }
+      // Determine color based on incident count
+      if (incidentCount >= 6) {
+        segmentColor = 'red';
+      } else if (incidentCount >= 3) {
+        segmentColor = 'yellow';
+      } else {
+        segmentColor = 'green';
       }
 
-      segments.push({ lat, lng, color: segmentColor });
+      // Add unique hazards
+      nearbyHazards.forEach(hazard => {
+        if (!detectedHazards.has(hazard._id.toString())) {
+          detectedHazards.set(hazard._id.toString(), hazard);
+        }
+      });
+
+      segments.push({ lat, lng, color: segmentColor, incidentCount });
     }
 
     res.json({
@@ -472,10 +452,6 @@ app.post('/api/route-safety', async (req, res) => {
   }
 });
 
-/**
- * GET /api/hazards
- * Get all hazards in the database
- */
 app.get('/api/hazards', async (req, res) => {
   try {
     const { type, limit = 50, skip = 0 } = req.query;
@@ -507,10 +483,6 @@ app.get('/api/hazards', async (req, res) => {
   }
 });
 
-/**
- * GET /api/stats
- * Get statistics about hazards
- */
 app.get('/api/stats', async (req, res) => {
   try {
     const stats = await CaseReport.aggregate([
@@ -545,42 +517,10 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-/**
- * Calculate distance between two coordinates using Haversine formula
- * @param {number} lat1 - Latitude of point 1
- * @param {number} lon1 - Longitude of point 1
- * @param {number} lat2 - Latitude of point 2
- * @param {number} lon2 - Longitude of point 2
- * @returns {number} Distance in meters
- */
-function getDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // Earth's radius in meters
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-// ============================================
-// FALLBACK ROUTE
-// ============================================
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ============================================
-// ERROR HANDLING
-// ============================================
 app.use((err, req, res, next) => {
   console.error('Error:', err);
   res.status(500).json({
@@ -589,9 +529,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ============================================
-// START SERVER
-// ============================================
 app.listen(PORT, () => {
   console.log(`🚀 Production Safety Server running at http://localhost:${PORT}`);
   console.log(`📊 Environment: ${NODE_ENV}`);

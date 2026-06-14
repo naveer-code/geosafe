@@ -6,12 +6,18 @@
     <title>GeoSafe - Global Safety Navigation Matrix</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/vis-network.min.js"></script>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/vis-network.min.css" />
 
     <style>
         #map { height: 600px; width: 100%; border-radius: 12px; z-index: 1; border: 1px solid #e5e7eb; }
+        #network-graph { height: 500px; width: 100%; border-radius: 12px; border: 1px solid #e5e7eb; background: #f9fafb; }
+        #danger-chart { height: 300px; width: 100%; }
+        
         .symbol-icon {
             font-size: 28px;
             background: none;
@@ -19,6 +25,7 @@
             text-align: center;
             line-height: 1;
         }
+        
         .custom-search-field .leaflet-control-geocoder {
             width: 100% !important;
             box-shadow: none !important;
@@ -58,6 +65,73 @@
             border-radius: 4px;
             border-left: 3px solid #059669;
         }
+        .info-message {
+            color: #0369a1;
+            font-size: 12px;
+            margin-top: 8px;
+            padding: 8px;
+            background: #e0f2fe;
+            border-radius: 4px;
+            border-left: 3px solid #0369a1;
+        }
+
+        .node-legend {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            font-size: 11px;
+            margin-top: 12px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px;
+            background: #f3f4f6;
+            border-radius: 4px;
+        }
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 2px solid #333;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        .stat-card.danger { background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%); }
+        .stat-card.warning { background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); }
+        .stat-card.safe { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        .tab {
+            padding: 10px 16px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            font-weight: 500;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        .tab.active {
+            border-bottom-color: #3b82f6;
+            color: #3b82f6;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-900 font-sans antialiased">
@@ -65,8 +139,8 @@
     <div class="max-w-7xl mx-auto p-6">
         <header class="flex justify-between items-center border-b border-gray-200 pb-4 mb-6">
             <div>
-                <h1 class="text-2xl font-black tracking-tight text-gray-900">GeoSafe Dashboard</h1>
-                <p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Hyderabad Safety Navigation Framework</p>
+                <h1 class="text-2xl font-black tracking-tight text-gray-900">🗺️ GeoSafe Dashboard</h1>
+                <p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Hyderabad Safety Navigation with Graph Analysis</p>
             </div>
             <div class="flex gap-3">
                 <button onclick="fetchStats()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2 px-4 rounded transition-all shadow-sm cursor-pointer">
@@ -79,7 +153,8 @@
         </header>
 
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-5">
+            <!-- LEFT SIDEBAR -->
+            <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-5 max-h-[800px] overflow-y-auto">
                 <h2 class="text-sm font-bold text-gray-400 uppercase tracking-wider">Safe Route Analyser</h2>
                 
                 <div class="custom-search-field">
@@ -95,10 +170,34 @@
                 </div>
 
                 <button onclick="calculateGlobalSafeRoute()" class="w-full bg-gray-900 hover:bg-gray-800 text-white font-semibold py-2.5 rounded-md transition-all cursor-pointer text-sm shadow-sm mt-1" id="analyzeBtn">
-                    🗺️ Analyze Route Safety
+                    🧭 Analyze Route Safety
                 </button>
                 <div id="routeMessage"></div>
 
+                <!-- QUICK STATS -->
+                <div class="mt-4 pt-4 border-t border-gray-100">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Route Analysis</h3>
+                    <div id="routeStats" class="space-y-2">
+                        <div class="stat-card">
+                            <div class="text-[10px] opacity-80">Total Segments</div>
+                            <div class="text-lg font-bold" id="stat-segments">0</div>
+                        </div>
+                        <div class="stat-card danger">
+                            <div class="text-[10px] opacity-80">Danger Zones</div>
+                            <div class="text-lg font-bold" id="stat-danger">0</div>
+                        </div>
+                        <div class="stat-card warning">
+                            <div class="text-[10px] opacity-80">Caution Areas</div>
+                            <div class="text-lg font-bold" id="stat-warning">0</div>
+                        </div>
+                        <div class="stat-card safe">
+                            <div class="text-[10px] opacity-80">Safe Segments</div>
+                            <div class="text-lg font-bold" id="stat-safe">0</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- THREAT LEGEND -->
                 <div class="mt-2 pt-4 border-t border-gray-100">
                     <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Threat Legend Matrix</h3>
                     <div class="space-y-2.5 text-xs font-semibold text-gray-600">
@@ -109,15 +208,86 @@
                 </div>
             </div>
 
-            <div class="lg:col-span-3 relative bg-white p-2 rounded-xl border border-gray-200 shadow-sm">
-                <div id="map"></div>
-                <div class="absolute bottom-4 left-4 z-[1000] bg-white/95 backdrop-blur shadow border border-gray-200 px-4 py-2 rounded-md text-xs flex gap-4 font-bold text-gray-700">
-                    <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span> Secure Path</div>
-                    <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 bg-amber-400 rounded-full"></span> Caution Warning</div>
-                    <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 bg-rose-500 rounded-full"></span> High Danger Area</div>
-                </div>
-                <div id="statsPanel" class="absolute top-4 right-4 z-[1000] bg-white/95 backdrop-blur shadow border border-gray-200 px-4 py-3 rounded-md text-xs hidden">
-                    <div id="statContent"></div>
+            <!-- MAIN CONTENT -->
+            <div class="lg:col-span-3">
+                <!-- TABS -->
+                <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                    <div class="tabs">
+                        <div class="tab active" onclick="switchTab(event, 'map-tab')">🗺️ Route Map</div>
+                        <div class="tab" onclick="switchTab(event, 'graph-tab')">📊 Danger Graph</div>
+                        <div class="tab" onclick="switchTab(event, 'analytics-tab')">📈 Analytics</div>
+                    </div>
+
+                    <!-- MAP TAB -->
+                    <div id="map-tab" class="tab-content active relative">
+                        <div id="map"></div>
+                        <div class="absolute bottom-4 left-4 z-[1000] bg-white/95 backdrop-blur shadow border border-gray-200 px-4 py-2 rounded-md text-xs flex gap-4 font-bold text-gray-700">
+                            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span> Secure Path</div>
+                            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 bg-amber-400 rounded-full"></span> Caution Warning</div>
+                            <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 bg-rose-500 rounded-full"></span> High Danger Area</div>
+                        </div>
+                    </div>
+
+                    <!-- DANGER GRAPH TAB -->
+                    <div id="graph-tab" class="tab-content">
+                        <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <p class="text-xs text-blue-800"><b>📊 Graph Analysis:</b> Each node represents a street segment. Node size = crime incidents. Color = danger level. Edges = route connectivity.</p>
+                        </div>
+                        <div id="network-graph"></div>
+                        
+                        <div class="node-legend mt-4">
+                            <div class="legend-item">
+                                <div class="legend-dot" style="background-color: #10b981;"></div>
+                                <span>Safe Node (0-2 incidents)</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-dot" style="background-color: #fbbf24;"></div>
+                                <span>Caution (3-5 incidents)</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-dot" style="background-color: #f43f5e;"></div>
+                                <span>Danger (6+ incidents)</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-dot" style="background-color: #8b5cf6; border: 2px dashed #333;"></div>
+                                <span>Hazard Location</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ANALYTICS TAB -->
+                    <div id="analytics-tab" class="tab-content">
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-lg">
+                                <div class="text-xs text-emerald-600 font-bold">SAFE SEGMENTS</div>
+                                <div class="text-2xl font-bold text-emerald-700" id="analytics-safe">0</div>
+                            </div>
+                            <div class="bg-amber-50 border border-amber-200 p-4 rounded-lg">
+                                <div class="text-xs text-amber-600 font-bold">CAUTION SEGMENTS</div>
+                                <div class="text-2xl font-bold text-amber-700" id="analytics-caution">0</div>
+                            </div>
+                            <div class="bg-rose-50 border border-rose-200 p-4 rounded-lg">
+                                <div class="text-xs text-rose-600 font-bold">DANGER SEGMENTS</div>
+                                <div class="text-2xl font-bold text-rose-700" id="analytics-danger">0</div>
+                            </div>
+                            <div class="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                                <div class="text-xs text-blue-600 font-bold">TOTAL HAZARDS</div>
+                                <div class="text-2xl font-bold text-blue-700" id="analytics-hazards">0</div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-4 rounded-lg border border-gray-200">
+                            <h4 class="text-sm font-bold text-gray-700 mb-3">Safety Score Distribution</h4>
+                            <canvas id="danger-chart"></canvas>
+                        </div>
+
+                        <div class="mt-4 bg-white p-4 rounded-lg border border-gray-200">
+                            <h4 class="text-sm font-bold text-gray-700 mb-3">Hazards Detected</h4>
+                            <div id="hazard-list" class="space-y-2 max-h-[300px] overflow-y-auto text-xs">
+                                <p class="text-gray-400 italic">No route analyzed yet</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -128,53 +298,85 @@
     
     <script>
         // ============================================
-        // MAP INITIALIZATION
+        // GLOBAL STATE
         // ============================================
-        const map = L.map('map').setView([17.3850, 78.4860], 11);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(map);
-
-        let activeLayers = L.featureGroup().addTo(map);
+        let map;
+        let activeLayers = null;
         let sourceLocationCoords = null;
         let destLocationCoords = null;
+        let currentRouteData = null;
+        let dangerChart = null;
+        let networkVisual = null;
 
         // ============================================
-        // API FUNCTIONS
+        // INITIALIZATION
         // ============================================
+        function initMap() {
+            map = L.map('map').setView([17.3850, 78.4860], 11);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+            activeLayers = L.featureGroup().addTo(map);
+        }
 
-        async function seedCompendiumDatabase() {
-            const btn = document.getElementById('seedBtn');
-            const adminKey = prompt('Enter admin key to sync database:');
-            
-            if (!adminKey) {
-                showMessage('Sync cancelled', 'error');
-                return;
-            }
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            initGeocoders();
+        });
 
-            btn.disabled = true;
-            btn.classList.add('loading');
+        // ============================================
+        // TAB SWITCHING
+        // ============================================
+        function switchTab(event, tabId) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
 
-            try {
-                const response = await fetch('/api/seed-compendium', {
-                    headers: { 'x-admin-key': adminKey }
-                });
-                const data = await response.json();
+            // Show selected tab
+            document.getElementById(tabId).classList.add('active');
+            event.target.classList.add('active');
 
-                if (response.ok) {
-                    showMessage(`✅ ${data.message}`, 'success');
-                } else {
-                    showMessage(`❌ ${data.error}: ${data.message || ''}`, 'error');
-                }
-            } catch (err) {
-                console.error('Seed error:', err);
-                showMessage('Failed to sync database', 'error');
-            } finally {
-                btn.disabled = false;
-                btn.classList.remove('loading');
+            // Trigger resize for chart
+            if (tabId === 'analytics-tab' && dangerChart) {
+                setTimeout(() => dangerChart.resize(), 100);
             }
         }
 
+        // ============================================
+        // GEOCODER SETUP
+        // ============================================
+        function initGeocoders() {
+            const sourceGeocoder = L.Control.geocoder({
+                collapsed: false,
+                placeholder: 'Search origin location...',
+                defaultMarkGeocode: false
+            })
+                .on('markgeocode', function(e) {
+                    sourceLocationCoords = [e.geocode.center.lat, e.geocode.center.lng];
+                    document.getElementById('sourceStatus').innerHTML = `📍 Linked: <span class="text-emerald-600 font-bold">${e.geocode.name.substring(0, 25)}...</span>`;
+                });
+            document.getElementById('sourceSearchBox').appendChild(sourceGeocoder.onAdd(map));
+
+            const destGeocoder = L.Control.geocoder({
+                collapsed: false,
+                placeholder: 'Search destination...',
+                defaultMarkGeocode: false
+            })
+                .on('markgeocode', function(e) {
+                    destLocationCoords = [e.geocode.center.lat, e.geocode.center.lng];
+                    document.getElementById('destStatus').innerHTML = `🏁 Linked: <span class="text-emerald-600 font-bold">${e.geocode.name.substring(0, 25)}...</span>`;
+                });
+            document.getElementById('destSearchBox').appendChild(destGeocoder.onAdd(map));
+        }
+
+        // ============================================
+        // MAIN ANALYSIS FUNCTION
+        // ============================================
         async function calculateGlobalSafeRoute() {
             if (!sourceLocationCoords || !destLocationCoords) {
                 showRouteMessage('Please select both origin and destination addresses!', 'error');
@@ -193,15 +395,10 @@
                 const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${sourceLocationCoords[1]},${sourceLocationCoords[0]};${destLocationCoords[1]},${destLocationCoords[0]}?overview=full&geometries=geojson`;
                 const routeResponse = await fetch(osrmUrl);
 
-                if (!routeResponse.ok) {
-                    throw new Error('Failed to calculate route');
-                }
+                if (!routeResponse.ok) throw new Error('Failed to calculate route');
 
                 const routeData = await routeResponse.json();
-
-                if (!routeData.routes || routeData.routes.length === 0) {
-                    throw new Error('No route found');
-                }
+                if (!routeData.routes || routeData.routes.length === 0) throw new Error('No route found');
 
                 const fullRouteCoordinates = routeData.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
 
@@ -212,64 +409,262 @@
                     body: JSON.stringify({ coordinates: fullRouteCoordinates })
                 });
 
-                if (!safetyResponse.ok) {
-                    throw new Error('Failed to analyze route safety');
-                }
+                if (!safetyResponse.ok) throw new Error('Failed to analyze route safety');
 
                 const safetyData = await safetyResponse.json();
+                currentRouteData = { segments: fullRouteCoordinates, safety: safetyData };
 
-                // Draw route segments
-                for (let i = 0; i < safetyData.segments.length - 1; i++) {
-                    const currentPoint = safetyData.segments[i];
-                    const nextPoint = safetyData.segments[i + 1];
+                // Draw on map
+                drawRouteOnMap(fullRouteCoordinates, safetyData);
 
-                    let strokeColor = '#10b981'; // Green
-                    if (currentPoint.color === 'red') strokeColor = '#f43f5e'; // Red
-                    if (currentPoint.color === 'yellow') strokeColor = '#fbbf24'; // Yellow
+                // Build graph visualization
+                buildDangerGraph(fullRouteCoordinates, safetyData);
 
-                    L.polyline(
-                        [[currentPoint.lat, currentPoint.lng], [nextPoint.lat, nextPoint.lng]],
-                        { color: strokeColor, weight: 6, opacity: 0.9 }
-                    ).addTo(activeLayers);
-                }
+                // Update analytics
+                updateAnalytics(safetyData);
 
-                // Draw hazard markers
-                safetyData.hazards.forEach(hazard => {
-                    let markerSymbol = '⚠️';
-                    if (hazard.type === 'murder') markerSymbol = '💀';
-                    else if (hazard.type === 'dark') markerSymbol = '🌑';
+                showRouteMessage(`✅ Route analyzed! Found ${safetyData.hazards.length} hazards`, 'success');
 
-                    const customHtmlIcon = L.divIcon({
-                        html: markerSymbol,
-                        className: 'symbol-icon',
-                        iconSize: [28, 28]
-                    });
-
-                    L.marker([hazard.location.coordinates[1], hazard.location.coordinates[0]], { icon: customHtmlIcon })
-                        .addTo(activeLayers)
-                        .bindPopup(`
-                            <div class="text-gray-900 font-sans p-2 max-w-sm">
-                                <b class="text-sm border-b pb-1 border-gray-200 block text-red-600">${hazard.caseTitle}</b>
-                                <p class="text-[10px] font-bold text-gray-500 my-1 uppercase">Category: ${hazard.category}</p>
-                                <p class="text-xs text-gray-700 my-1 font-medium"><b>Details:</b> ${hazard.description.substring(0, 100)}...</p>
-                                <p class="text-[11px] text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded mt-1"><b>Action:</b> ${hazard.policeIntervention.substring(0, 80)}...</p>
-                            </div>
-                        `);
-                });
-
-                if (activeLayers.getLayers().length > 0) {
-                    map.fitBounds(activeLayers.getBounds(), { padding: [50, 50] });
-                }
-
-                const hazardCount = safetyData.hazards.length;
-                const dangerZones = safetyData.hazards.filter(h => h.type === 'murder').length;
-                showRouteMessage(
-                    `✅ Route analyzed! Found ${hazardCount} hazards (${dangerZones} danger zones)`,
-                    'success'
-                );
             } catch (error) {
                 console.error('Route analysis error:', error);
                 showRouteMessage('Error analyzing route. Please try again.', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('loading');
+            }
+        }
+
+        // ============================================
+        // MAP RENDERING
+        // ============================================
+        function drawRouteOnMap(coordinates, safetyData) {
+            // Draw segments
+            for (let i = 0; i < safetyData.segments.length - 1; i++) {
+                const currentPoint = safetyData.segments[i];
+                const nextPoint = safetyData.segments[i + 1];
+
+                let strokeColor = '#10b981';
+                if (currentPoint.color === 'red') strokeColor = '#f43f5e';
+                if (currentPoint.color === 'yellow') strokeColor = '#fbbf24';
+
+                L.polyline(
+                    [[currentPoint.lat, currentPoint.lng], [nextPoint.lat, nextPoint.lng]],
+                    { color: strokeColor, weight: 6, opacity: 0.9, dashArray: currentPoint.color === 'yellow' ? '5, 5' : '' }
+                ).addTo(activeLayers);
+            }
+
+            // Draw hazard markers
+            safetyData.hazards.forEach((hazard, idx) => {
+                let markerSymbol = '⚠️';
+                if (hazard.type === 'murder') markerSymbol = '💀';
+                else if (hazard.type === 'dark') markerSymbol = '🌑';
+
+                const customHtmlIcon = L.divIcon({
+                    html: markerSymbol,
+                    className: 'symbol-icon',
+                    iconSize: [28, 28]
+                });
+
+                L.marker([hazard.location.coordinates[1], hazard.location.coordinates[0]], { icon: customHtmlIcon })
+                    .addTo(activeLayers)
+                    .bindPopup(`
+                        <div class="text-gray-900 font-sans p-2 max-w-sm">
+                            <b class="text-sm border-b pb-1 border-gray-200 block text-red-600">${hazard.caseTitle}</b>
+                            <p class="text-[10px] font-bold text-gray-500 my-1 uppercase">Category: ${hazard.category}</p>
+                            <p class="text-xs text-gray-700 my-1 font-medium"><b>Type:</b> ${hazard.type}</p>
+                        </div>
+                    `);
+            });
+
+            if (activeLayers.getLayers().length > 0) {
+                map.fitBounds(activeLayers.getBounds(), { padding: [50, 50] });
+            }
+        }
+
+        // ============================================
+        // DANGER GRAPH VISUALIZATION
+        // ============================================
+        function buildDangerGraph(coordinates, safetyData) {
+            const nodes = [];
+            const edges = [];
+            const nodeColors = { green: '#10b981', yellow: '#fbbf24', red: '#f43f5e' };
+
+            // Create nodes for each segment
+            for (let i = 0; i < safetyData.segments.length; i++) {
+                const segment = safetyData.segments[i];
+                const color = nodeColors[segment.color] || '#10b981';
+
+                nodes.push({
+                    id: i,
+                    label: `Segment ${i + 1}`,
+                    color: color,
+                    title: `Segment ${i + 1}\nRisk Level: ${segment.color.toUpperCase()}\nLat: ${segment.lat.toFixed(4)}, Lng: ${segment.lng.toFixed(4)}`,
+                    size: segment.color === 'red' ? 35 : segment.color === 'yellow' ? 25 : 18,
+                    font: { size: 10, color: '#000' }
+                });
+            }
+
+            // Create edges between consecutive segments
+            for (let i = 0; i < nodes.length - 1; i++) {
+                edges.push({
+                    from: i,
+                    to: i + 1,
+                    arrows: 'to',
+                    smooth: { type: 'continuous' }
+                });
+            }
+
+            // Add hazard nodes
+            safetyData.hazards.forEach((hazard, idx) => {
+                nodes.push({
+                    id: `hazard-${idx}`,
+                    label: hazard.type.toUpperCase(),
+                    color: '#8b5cf6',
+                    borderWidth: 3,
+                    shape: 'diamond',
+                    title: `${hazard.caseTitle}\n${hazard.category}`,
+                    size: 30,
+                    font: { size: 9, color: '#fff', bold: { color: '#fff' } }
+                });
+            });
+
+            // Network data
+            const data = {
+                nodes: new vis.DataSet(nodes),
+                edges: new vis.DataSet(edges)
+            };
+
+            const options = {
+                physics: {
+                    enabled: true,
+                    stabilization: {
+                        iterations: 200
+                    },
+                    barnesHut: {
+                        gravitationalConstant: -8000,
+                        centralGravity: 0.3,
+                        springLength: 200
+                    }
+                },
+                interaction: {
+                    navigationButtons: true,
+                    keyboard: true
+                }
+            };
+
+            const container = document.getElementById('network-graph');
+            networkVisual = new vis.Network(container, data, options);
+        }
+
+        // ============================================
+        // ANALYTICS & CHARTS
+        // ============================================
+        function updateAnalytics(safetyData) {
+            const segments = safetyData.segments;
+            const safe = segments.filter(s => s.color === 'green').length;
+            const warning = segments.filter(s => s.color === 'yellow').length;
+            const danger = segments.filter(s => s.color === 'red').length;
+
+            // Update stat cards
+            document.getElementById('stat-segments').textContent = segments.length;
+            document.getElementById('stat-danger').textContent = danger;
+            document.getElementById('stat-warning').textContent = warning;
+            document.getElementById('stat-safe').textContent = safe;
+
+            // Update analytics cards
+            document.getElementById('analytics-safe').textContent = safe;
+            document.getElementById('analytics-caution').textContent = warning;
+            document.getElementById('analytics-danger').textContent = danger;
+            document.getElementById('analytics-hazards').textContent = safetyData.hazards.length;
+
+            // Draw chart
+            drawDangerChart(safe, warning, danger);
+
+            // Update hazard list
+            updateHazardList(safetyData.hazards);
+        }
+
+        function drawDangerChart(safe, warning, danger) {
+            const ctx = document.getElementById('danger-chart').getContext('2d');
+            
+            if (dangerChart) dangerChart.destroy();
+
+            dangerChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Safe Segments', 'Caution Segments', 'Danger Segments'],
+                    datasets: [{
+                        data: [safe, warning, danger],
+                        backgroundColor: [
+                            '#10b981',
+                            '#fbbf24',
+                            '#f43f5e'
+                        ],
+                        borderColor: ['#059669', '#f59e0b', '#e11d48'],
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                font: { size: 12 },
+                                padding: 15
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateHazardList(hazards) {
+            const container = document.getElementById('hazard-list');
+            if (hazards.length === 0) {
+                container.innerHTML = '<p class="text-gray-400 italic">No hazards detected on this route</p>';
+                return;
+            }
+
+            container.innerHTML = hazards.map((h, idx) => `
+                <div class="p-2 bg-gray-50 rounded border border-gray-200">
+                    <div class="font-bold text-[11px] text-gray-700">${h.caseTitle}</div>
+                    <div class="text-[10px] text-gray-500 mt-1">📍 ${h.category}</div>
+                    <div class="text-[10px] text-gray-600 mt-1 line-clamp-2">${h.description.substring(0, 80)}...</div>
+                </div>
+            `).join('');
+        }
+
+        // ============================================
+        // UTILITY FUNCTIONS
+        // ============================================
+        async function seedCompendiumDatabase() {
+            const btn = document.getElementById('seedBtn');
+            const adminKey = prompt('Enter admin key to sync database:');
+            
+            if (!adminKey) {
+                showRouteMessage('Sync cancelled', 'error');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.classList.add('loading');
+
+            try {
+                const response = await fetch('/api/seed-compendium', {
+                    headers: { 'x-admin-key': adminKey }
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    showRouteMessage(`✅ ${data.message}`, 'success');
+                } else {
+                    showRouteMessage(`❌ ${data.error}`, 'error');
+                }
+            } catch (err) {
+                console.error('Seed error:', err);
+                showRouteMessage('Failed to sync database', 'error');
             } finally {
                 btn.disabled = false;
                 btn.classList.remove('loading');
@@ -280,22 +675,7 @@
             try {
                 const response = await fetch('/api/stats');
                 const data = await response.json();
-
-                const panel = document.getElementById('statsPanel');
-                const content = document.getElementById('statContent');
-
-                let html = '<b class="block mb-2">📊 Safety Statistics</b>';
-                html += `<p class="mb-1">Total Incidents: <b>${data.total}</b></p>`;
-                html += '<div class="text-[10px]">';
-                
-                data.byType.forEach(item => {
-                    const typeEmoji = item._id === 'murder' ? '💀' : item._id === 'dark' ? '🌑' : '⚠️';
-                    html += `<p>${typeEmoji} ${item._id}: ${item.count}</p>`;
-                });
-                
-                html += '</div>';
-                content.innerHTML = html;
-                panel.classList.remove('hidden');
+                alert(`📊 Safety Statistics\n\nTotal Incidents: ${data.total}\n\nByType:\n${data.byType.map(t => `${t._id}: ${t.count}`).join('\n')}`);
             } catch (err) {
                 console.error('Stats error:', err);
             }
@@ -303,38 +683,9 @@
 
         function showRouteMessage(msg, type) {
             const container = document.getElementById('routeMessage');
-            const className = type === 'error' ? 'error-message' : type === 'success' ? 'success-message' : 'text-blue-600 text-[11px] mt-2';
+            const className = type === 'error' ? 'error-message' : type === 'success' ? 'success-message' : 'info-message';
             container.innerHTML = `<div class="${className}">${msg}</div>`;
         }
-
-        function showMessage(msg, type) {
-            alert(msg);
-        }
-
-        // ============================================
-        // GEOCODER SETUP
-        // ============================================
-        const sourceGeocoder = L.Control.geocoder({
-            collapsed: false,
-            placeholder: 'Search origin location...',
-            defaultMarkGeocode: false
-        })
-            .on('markgeocode', function(e) {
-                sourceLocationCoords = [e.geocode.center.lat, e.geocode.center.lng];
-                document.getElementById('sourceStatus').innerHTML = `📍 Linked: <span class="text-emerald-600 font-bold">${e.geocode.name.substring(0, 25)}...</span>`;
-            });
-        document.getElementById('sourceSearchBox').appendChild(sourceGeocoder.onAdd(map));
-
-        const destGeocoder = L.Control.geocoder({
-            collapsed: false,
-            placeholder: 'Search destination...',
-            defaultMarkGeocode: false
-        })
-            .on('markgeocode', function(e) {
-                destLocationCoords = [e.geocode.center.lat, e.geocode.center.lng];
-                document.getElementById('destStatus').innerHTML = `🏁 Linked: <span class="text-emerald-600 font-bold">${e.geocode.name.substring(0, 25)}...</span>`;
-            });
-        document.getElementById('destSearchBox').appendChild(destGeocoder.onAdd(map));
     </script>
 </body>
 </html>
